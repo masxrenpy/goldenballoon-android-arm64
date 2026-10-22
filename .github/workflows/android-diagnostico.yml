@@ -1,0 +1,82 @@
+name: Android Diagnostico
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: android-diagnostico-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build-diagnostic:
+    name: Compilar APK y conservar simbolos
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+
+    steps:
+      - name: Descargar el codigo del repositorio
+        uses: actions/checkout@v4
+
+      - name: Preparar Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: false
+
+      - name: Preparar Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Mostrar informacion del entorno
+        run: |
+          python3 --version
+          java -version
+          git rev-parse --short HEAD
+
+      - name: Compilar APK de depuracion y simbolos nativos
+        run: |
+          python3 tools/android/build.py --sdk-only --install-sdk --jobs 2
+
+      - name: Mostrar archivos generados
+        if: always()
+        run: |
+          echo "Contenido de la carpeta out:"
+          if [ -d out ]; then
+            find out -maxdepth 2 -type f -printf '%p (%s bytes)\n'
+          else
+            echo "No se creo la carpeta out."
+          fi
+
+      - name: Subir APK de diagnostico
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: GoldenBalloon-APK-Diagnostico
+          path: out/GoldenBalloon-arm64-debug.apk
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Subir simbolos nativos para analizar fallos
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: GoldenBalloon-Simbolos-Diagnostico
+          path: out/GoldenBalloon-arm64-symbols.zip
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Conservar resultados de compilacion si falla
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: GoldenBalloon-Resultados-Compilacion
+          path: |
+            out/**
+            *.log
+          if-no-files-found: warn
+          retention-days: 7
